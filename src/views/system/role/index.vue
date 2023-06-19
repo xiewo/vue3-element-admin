@@ -1,240 +1,239 @@
-<script lang="ts">
-export default {
-  name: 'role',
-};
-</script>
-
 <script setup lang="ts">
-import { onMounted, reactive, ref, toRefs, nextTick } from 'vue';
-import {
-  listRolePages,
-  updateRole,
-  getRoleFormDetail,
-  addRole,
-  deleteRoles,
-  getRoleResourceIds,
-  updateRoleResource,
-} from '@/api/system/role';
-import { getResource } from '@/api/system/menu';
-
-import { ElForm, ElMessage, ElMessageBox, ElTree } from 'element-plus';
-import { Search, Plus, Edit, Refresh, Delete } from '@element-plus/icons-vue';
-import {
-  RoleFormData,
-  RoleItem,
-  RoleQueryParam,
-} from '@/types/api/system/role';
-import SvgIcon from '@/components/SvgIcon/index.vue';
-
-const emit = defineEmits(['roleClick']);
-const queryFormRef = ref(ElForm);
-const dataFormRef = ref(ElForm);
-const resourceRef = ref(ElTree);
-
-const state = reactive({
-  loading: true,
-  // 选中ID数组
-  ids: [],
-  // 非单个禁用
-  single: true,
-  // 非多个禁用
-  multiple: true,
-  queryParams: {
-    pageNum: 1,
-    pageSize: 10,
-  } as RoleQueryParam,
-  roleList: [] as RoleItem[],
-  total: 0,
-  dialog: {
-    title: '',
-    visible: false,
-  },
-  formData: {} as RoleFormData,
-  rules: {
-    name: [{ required: true, message: '请输入角色名称', trigger: 'blur' }],
-    code: [{ required: true, message: '请输入角色编码', trigger: 'blur' }],
-  },
-  resourceDialogVisible: false,
-  menuOptions: [] as any[],
-  permOptions: [] as any[],
-  checkedRole: {
-    id: '',
-    name: '',
-  }, // 选中的角色
+defineOptions({
+  name: "Role",
+  inheritAttrs: false,
 });
 
-const {
-  loading,
-  multiple,
-  queryParams,
-  roleList,
-  total,
-  dialog,
-  formData,
-  rules,
-  resourceDialogVisible,
-  menuOptions,
-  permOptions,
-  checkedRole,
-} = toRefs(state);
+import {
+  getRolePage,
+  updateRole,
+  getRoleForm,
+  addRole,
+  deleteRoles,
+  getRoleMenuIds,
+  updateRoleMenus,
+} from "@/api/role";
+import { listMenuOptions } from "@/api/menu";
 
-function handleQuery() {
-  emit('roleClick', {});
-  state.loading = true;
-  listRolePages(state.queryParams).then(({ data }) => {
-    state.roleList = data.list;
-    state.total = data.total;
-    state.loading = false;
-  });
+import { RolePageVO, RoleForm, RoleQuery } from "@/api/role/types";
+
+const queryFormRef = ref(ElForm);
+const roleFormRef = ref(ElForm);
+const menuRef = ref(ElTree);
+
+const loading = ref(false);
+const ids = ref<number[]>([]);
+const total = ref(0);
+
+const queryParams = reactive<RoleQuery>({
+  pageNum: 1,
+  pageSize: 10,
+});
+
+const roleList = ref<RolePageVO[]>();
+
+const dialog = reactive<DialogOption>({
+  visible: false,
+});
+
+const formData = reactive<RoleForm>({
+  sort: 1,
+  status: 1,
+  code: "",
+  name: "",
+});
+
+const rules = reactive({
+  name: [{ required: true, message: "请输入角色名称", trigger: "blur" }],
+  code: [{ required: true, message: "请输入角色编码", trigger: "blur" }],
+  dataScope: [{ required: true, message: "请选择数据权限", trigger: "blur" }],
+  status: [{ required: true, message: "请选择状态", trigger: "blur" }],
+});
+
+const menuDialogVisible = ref(false);
+
+const menuList = ref<OptionType[]>([]);
+
+interface CheckedRole {
+  id?: number;
+  name?: string;
 }
+let checkedRole: CheckedRole = reactive({});
 
+/**
+ * 查询
+ */
+function handleQuery() {
+  loading.value = true;
+  getRolePage(queryParams)
+    .then(({ data }) => {
+      roleList.value = data.list;
+      total.value = data.total;
+    })
+    .finally(() => {
+      loading.value = false;
+    });
+}
+/**
+ * 重置查询
+ */
 function resetQuery() {
   queryFormRef.value.resetFields();
+  queryParams.pageNum = 1;
   handleQuery();
 }
 
+/**
+ * 行checkbox change事件
+ */
 function handleSelectionChange(selection: any) {
-  state.ids = selection.map((item: any) => item.id);
-  state.single = selection.length !== 1;
-  state.multiple = !selection.length;
+  ids.value = selection.map((item: any) => item.id);
 }
 
-function handleRowClick(row: any) {
-  emit('roleClick', row);
+/**
+ * 打开角色表单弹窗
+ *
+ * @param roleId
+ */
+function openDialog(roleId?: number) {
+  dialog.visible = true;
+  if (roleId) {
+    dialog.title = "修改角色";
+    getRoleForm(roleId).then(({ data }) => {
+      Object.assign(formData, data);
+    });
+  } else {
+    dialog.title = "新增角色";
+  }
 }
 
-function handleAdd() {
-  state.dialog = {
-    title: '添加角色',
-    visible: true,
-  };
-}
-
-function handleUpdate(row: any) {
-  state.dialog = {
-    title: '修改角色',
-    visible: true,
-  };
-  const roleId = row.id || state.ids;
-  getRoleFormDetail(roleId).then(({ data }) => {
-    state.formData = data;
-  });
-}
-
-function submitFormData() {
+/**
+ * 角色表单提交
+ */
+function handleSubmit() {
   loading.value = true;
-  dataFormRef.value.validate((valid: any) => {
+  roleFormRef.value.validate((valid: any) => {
     if (valid) {
-      if (state.formData.id) {
-        updateRole(state.formData.id as any, state.formData).then(() => {
-          ElMessage.success('修改角色成功');
-          cancel();
-          handleQuery();
-          loading.value = false;
-        });
+      const roleId = formData.id;
+      if (roleId) {
+        updateRole(roleId, formData)
+          .then(() => {
+            ElMessage.success("修改成功");
+            closeDialog();
+            resetQuery();
+          })
+          .finally(() => (loading.value = false));
       } else {
-        addRole(state.formData).then(() => {
-          cancel();
-          ElMessage.success('新增角色成功');
-          handleQuery();
-          loading.value = false;
-        });
+        addRole(formData)
+          .then(() => {
+            ElMessage.success("新增成功");
+            closeDialog();
+            resetQuery();
+          })
+          .finally(() => (loading.value = false));
       }
     }
   });
 }
 
 /**
- * 取消
+ * 关闭弹窗
  */
-function cancel() {
-  state.dialog.visible = false;
-  dataFormRef.value.resetFields();
+function closeDialog() {
+  dialog.visible = false;
+  resetForm();
 }
 
 /**
- *  删除
+ * 重置表单
  */
-function handleDelete(row: any) {
-  const ids = [row.id || state.ids].join(',');
-  ElMessageBox.confirm('确认删除已选中的数据项?', '警告', {
-    confirmButtonText: '确定',
-    cancelButtonText: '取消',
-    type: 'warning',
-  })
-    .then(() => {
-      deleteRoles(ids).then(() => {
-        ElMessage.success('删除成功');
-        handleQuery();
-      });
-    })
-    .catch(() => ElMessage.info('已取消删除'));
+function resetForm() {
+  roleFormRef.value.resetFields();
+  roleFormRef.value.clearValidate();
+
+  formData.id = undefined;
+  formData.sort = 1;
+  formData.status = 1;
 }
 
 /**
- * 分配资源权限
+ * 删除
  */
-function handleResourceAssign(row: RoleItem) {
-  resourceDialogVisible.value = true;
-  loading.value = true;
-  permOptions.value.map((item) => (item.checked = false));
+function handleDelete(roleId?: number) {
+  const roleIds = [roleId || ids.value].join(",");
+  if (!roleIds) {
+    ElMessage.warning("请勾选删除项");
+    return;
+  }
 
-  const roleId: any = row.id;
-  checkedRole.value = {
-    id: roleId,
-    name: row.name,
-  };
+  ElMessageBox.confirm("确认删除已选中的数据项?", "警告", {
+    confirmButtonText: "确定",
+    cancelButtonText: "取消",
+    type: "warning",
+  }).then(() => {
+    loading.value = true;
+    deleteRoles(roleIds)
+      .then(() => {
+        ElMessage.success("删除成功");
+        resetQuery();
+      })
+      .finally(() => (loading.value = false));
+  });
+}
 
-  //资源下拉数据
-  getResource().then((response) => {
-    state.menuOptions = response.data.menus;
-    state.permOptions = response.data.perms;
+/**
+ * 打开分配菜单弹窗
+ */
+function openMenuDialog(row: RolePageVO) {
+  const roleId = row.id;
+  if (roleId) {
+    checkedRole = {
+      id: roleId,
+      name: row.name,
+    };
+    menuDialogVisible.value = true;
+    loading.value = true;
 
-    // 获取角色拥有的资源数据进行勾选
-    getRoleResourceIds(roleId).then((res) => {
-      const checkedMenuIds = res.data.menuIds;
-      const checkedPermIds = res.data.permIds;
-      resourceRef.value.setCheckedKeys(checkedMenuIds);
-
-      permOptions.value.forEach((perm) => {
-        if (checkedPermIds.includes(perm.value)) {
-          perm.checked = true;
-        } else {
-          perm.checked = false;
-        }
-      });
-      loading.value = false;
+    // 获取所有的菜单
+    listMenuOptions().then((response) => {
+      menuList.value = response.data;
+      // 回显角色已拥有的菜单
+      getRoleMenuIds(roleId)
+        .then(({ data }) => {
+          const checkedMenuIds = data;
+          console.log("勾选权限", checkedMenuIds);
+          checkedMenuIds.forEach((menuId) =>
+            menuRef.value.setChecked(menuId, true, false)
+          );
+        })
+        .finally(() => {
+          loading.value = false;
+        });
     });
-  });
+  }
 }
 
 /**
- * 分配资源权限提交
+ * 角色分配菜单提交
  */
-function handleRoleResourceSubmit() {
-  const checkedMenuIds: any[] = resourceRef.value
-    .getCheckedNodes(false, true)
-    .map((node: any) => node.value);
+function handleRoleMenuSubmit() {
+  const roleId = checkedRole.id;
+  if (roleId) {
+    const checkedMenuIds: number[] = menuRef.value
+      .getCheckedNodes(false, true)
+      .map((node: any) => node.value);
 
-  const checkedPermIds = state.permOptions
-    .filter((item) => item.checked)
-    .map((item) => item.value);
-
-  const roleResourceData = {
-    menuIds: checkedMenuIds,
-    permIds: checkedPermIds,
-  };
-
-  updateRoleResource(checkedRole.value.id, roleResourceData).then((res) => {
-    ElMessage.success('分配权限成功');
-    state.resourceDialogVisible = false;
-    handleQuery();
-  });
-}
-
-// 取消资源分配
-function cancelResourceAssign() {
-  state.resourceDialogVisible = false;
+    loading.value = true;
+    updateRoleMenus(roleId, checkedMenuIds)
+      .then((res) => {
+        ElMessage.success("分配权限成功");
+        menuDialogVisible.value = false;
+        resetQuery();
+      })
+      .finally(() => {
+        loading.value = false;
+      });
+  }
 }
 
 onMounted(() => {
@@ -244,98 +243,108 @@ onMounted(() => {
 
 <template>
   <div class="app-container">
-    <!-- 搜索表单 -->
-    <el-form ref="queryFormRef" :model="queryParams" :inline="true">
-      <el-form-item>
-        <el-button type="success" :icon="Plus" @click="handleAdd"
-          >新增</el-button
+    <div class="search-container">
+      <el-form ref="queryFormRef" :model="queryParams" :inline="true">
+        <el-form-item prop="keywords" label="关键字">
+          <el-input
+            v-model="queryParams.keywords"
+            placeholder="角色名称"
+            clearable
+            @keyup.enter="handleQuery"
+          />
+        </el-form-item>
+
+        <el-form-item>
+          <el-button type="primary" @click="handleQuery"
+            ><i-ep-search />搜索</el-button
+          >
+          <el-button @click="resetQuery"><i-ep-refresh />重置</el-button>
+        </el-form-item>
+      </el-form>
+    </div>
+
+    <el-card shadow="never">
+      <template #header>
+        <el-button type="success" @click="openDialog()"
+          ><i-ep-plus />新增</el-button
         >
         <el-button
           type="danger"
-          :icon="Delete"
-          :disabled="multiple"
-          @click="handleDelete"
-          >删除</el-button
+          :disabled="ids.length === 0"
+          @click="handleDelete()"
+          ><i-ep-delete />删除</el-button
         >
-      </el-form-item>
+      </template>
 
-      <el-form-item prop="name">
-        <el-input
-          v-model="queryParams.name"
-          placeholder="角色名称"
-          clearable
-          @keyup.enter="handleQuery"
-        />
-      </el-form-item>
+      <el-table
+        ref="dataTableRef"
+        v-loading="loading"
+        :data="roleList"
+        highlight-current-row
+        border
+        @selection-change="handleSelectionChange"
+      >
+        <el-table-column type="selection" width="55" align="center" />
+        <el-table-column label="角色名称" prop="name" min-width="100" />
+        <el-table-column label="角色编码" prop="code" width="150" />
 
-      <el-form-item>
-        <el-button type="primary" :icon="Search" @click="handleQuery"
-          >搜索</el-button
-        >
-        <el-button :icon="Refresh" @click="resetQuery">重置</el-button>
-      </el-form-item>
-    </el-form>
+        <el-table-column label="状态" align="center" width="100">
+          <template #default="scope">
+            <el-tag v-if="scope.row.status === 1" type="success">正常</el-tag>
+            <el-tag v-else type="info">禁用</el-tag>
+          </template>
+        </el-table-column>
 
-    <!-- 数据表格 -->
-    <el-table
-      ref="dataTableRef"
-      v-loading="loading"
-      :data="roleList"
-      @selection-change="handleSelectionChange"
-      @row-click="handleRowClick"
-      highlight-current-row
-      border
-    >
-      <el-table-column type="selection" width="55" align="center" />
-      <el-table-column label="角色名称" prop="name" />
-      <el-table-column label="角色编码" prop="code" />
-      <el-table-column label="操作" align="center" width="200">
-        <template #default="scope">
-          <el-button
-            type="primary"
-            circle
-            plain
-            @click.stop="handleResourceAssign(scope.row)"
-          >
-            <svg-icon icon-class="perm" />
-          </el-button>
+        <el-table-column label="排序" align="center" width="80" prop="sort" />
 
-          <el-button
-            type="primary"
-            :icon="Edit"
-            circle
-            plain
-            @click.stop="handleUpdate(scope.row)"
-          />
-          <el-button
-            type="danger"
-            :icon="Delete"
-            circle
-            plain
-            @click.stop="handleDelete(scope.row)"
-          />
-        </template>
-      </el-table-column>
-    </el-table>
+        <el-table-column fixed="right" label="操作" width="220">
+          <template #default="scope">
+            <el-button
+              type="primary"
+              size="small"
+              link
+              @click="openMenuDialog(scope.row)"
+            >
+              <i-ep-position />分配权限
+            </el-button>
+            <el-button
+              type="primary"
+              size="small"
+              link
+              @click="openDialog(scope.row.id)"
+            >
+              <i-ep-edit />编辑
+            </el-button>
+            <el-button
+              type="primary"
+              size="small"
+              link
+              @click="handleDelete(scope.row.id)"
+            >
+              <i-ep-delete />删除
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
 
-    <!-- 分页工具条 -->
-    <pagination
-      v-if="total > 0"
-      :total="total"
-      v-model:page="queryParams.pageNum"
-      v-model:limit="queryParams.pageSize"
-      @pagination="handleQuery"
-    />
+      <pagination
+        v-if="total > 0"
+        v-model:total="total"
+        v-model:page="queryParams.pageNum"
+        v-model:limit="queryParams.pageSize"
+        @pagination="handleQuery"
+      />
+    </el-card>
 
-    <!-- 表单弹窗 -->
+    <!-- 角色表单弹窗 -->
     <el-dialog
-      :title="dialog.title"
       v-model="dialog.visible"
+      :title="dialog.title"
       width="500px"
-      destroy-on-close
+      @close="closeDialog"
     >
       <el-form
-        ref="dataFormRef"
+        ref="roleFormRef"
         :model="formData"
         :rules="rules"
         label-width="100px"
@@ -348,6 +357,22 @@ onMounted(() => {
           <el-input v-model="formData.code" placeholder="请输入角色编码" />
         </el-form-item>
 
+        <el-form-item label="数据权限" prop="dataScope">
+          <el-select v-model="formData.dataScope">
+            <el-option :key="0" label="全部数据" :value="0" />
+            <el-option :key="1" label="部门及子部门数据" :value="1" />
+            <el-option :key="2" label="本部门数据" :value="2" />
+            <el-option :key="3" label="本人数据" :value="3" />
+          </el-select>
+        </el-form-item>
+
+        <el-form-item label="状态" prop="status">
+          <el-radio-group v-model="formData.status">
+            <el-radio :label="1">正常</el-radio>
+            <el-radio :label="0">停用</el-radio>
+          </el-radio-group>
+        </el-form-item>
+
         <el-form-item label="排序" prop="sort">
           <el-input-number
             v-model="formData.sort"
@@ -356,107 +381,44 @@ onMounted(() => {
             style="width: 100px"
           />
         </el-form-item>
-
-        <el-form-item label="状态">
-          <el-radio-group v-model="formData.status">
-            <el-radio :label="1">正常</el-radio>
-            <el-radio :label="0">停用</el-radio>
-          </el-radio-group>
-        </el-form-item>
       </el-form>
 
       <template #footer>
         <div class="dialog-footer">
-          <el-button type="primary" @click="submitFormData">确 定</el-button>
-          <el-button @click="cancel">取 消</el-button>
+          <el-button type="primary" @click="handleSubmit">确 定</el-button>
+          <el-button @click="closeDialog">取 消</el-button>
         </div>
       </template>
     </el-dialog>
 
-    <!--分配权限弹窗-->
+    <!-- 分配菜单弹窗  -->
     <el-dialog
-      :title="'【' + checkedRole.name + '】分配权限'"
-      v-model="resourceDialogVisible"
-      width="1000px"
+      v-model="menuDialogVisible"
+      :title="'【' + checkedRole.name + '】权限分配'"
+      width="800px"
     >
-      <el-scrollbar max-height="600px" v-loading="loading">
+      <el-scrollbar v-loading="loading" max-height="600px">
         <el-tree
-          ref="resourceRef"
+          ref="menuRef"
           node-key="value"
           show-checkbox
-          :data="menuOptions"
+          :data="menuList"
           :default-expand-all="true"
         >
-          <template #default="{ node, data }">
-            <div v-if="data.isPerm == true" class="resource-tree-node">
-              <div class="resource-tree-node__content">
-                <el-checkbox
-                  v-for="perm in permOptions.filter(
-                    (perm) => perm.parentId == data.permPid
-                  )"
-                  :key="perm.value"
-                  :label="perm.value"
-                  v-model="perm.checked"
-                  border
-                  size="small"
-                  >{{ perm.label }}</el-checkbox
-                >
-              </div>
-            </div>
-            <span v-else>{{ node.label }}</span>
+          <template #default="{ data }">
+            {{ data.label }}
           </template>
         </el-tree>
       </el-scrollbar>
 
       <template #footer>
         <div class="dialog-footer">
-          <el-button type="primary" @click="handleRoleResourceSubmit"
+          <el-button type="primary" @click="handleRoleMenuSubmit"
             >确 定</el-button
           >
-          <el-button @click="cancelResourceAssign">取 消</el-button>
+          <el-button @click="menuDialogVisible = false">取 消</el-button>
         </div>
       </template>
     </el-dialog>
   </div>
 </template>
-
-<style lang="scss">
-.resource-tree-node {
-  width: 100%;
-  flex-wrap: wrap;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 14px;
-  padding-right: 8px;
-  margin-left: -28px !important;
-
-  &__content {
-    display: flex;
-    flex-wrap: wrap;
-  }
-  .el-checkbox--default {
-    background-color: transparent !important;
-  }
-}
-.el-tree-node__content {
-  height: auto !important;
-}
-
-.el-checkbox-group {
-  display: flex;
-  flex-wrap: wrap;
-  &:hover {
-    background-color: var(--el-tree-node-hover-bg-color);
-  }
-  &:active {
-    background-color: var(--el-tree-node-hover-bg-color);
-  }
-}
-
-.el-checkbox.el-checkbox--small {
-  margin: 5px;
-  z-index: 999;
-  background: #fff;
-}
-</style>

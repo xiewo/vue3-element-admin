@@ -1,171 +1,99 @@
-<script lang="ts">
-export default {
-  name: 'user',
-};
-</script>
-
 <script setup lang="ts">
-// Vue依赖
+/**
+ * @see {@link https://vuejs.org/api/sfc-script-setup.html#defineoptions}
+ */
+defineOptions({
+  name: "User",
+  inheritAttrs: false,
+});
+import { UploadFile } from "element-plus";
 import {
-  reactive,
-  ref,
-  watchEffect,
-  onMounted,
-  getCurrentInstance,
-  toRefs,
-} from 'vue';
-
-// 导入API
-import {
-  listUserPages,
-  getUserFormData,
+  getUserPage,
+  getUserForm,
   deleteUsers,
   addUser,
   updateUser,
-  updateUserPart,
-  downloadTemplate,
+  updateUserStatus,
+  updateUserPassword,
+  downloadTemplateApi,
   exportUser,
   importUser,
-} from '@/api/system/user';
-import { listSelectDepartments } from '@/api/system/dept';
-import { listRoleOptions } from '@/api/system/role';
+} from "@/api/user";
+import { listDeptOptions } from "@/api/dept";
+import { listRoleOptions } from "@/api/role";
 
-// 组件依赖
-import {
-  ElMessage,
-  ElMessageBox,
-  ElTree,
-  ElForm,
-  UploadFile,
-} from 'element-plus';
-import {
-  Search,
-  Plus,
-  Edit,
-  Refresh,
-  Delete,
-  Lock,
-  Download,
-  Top,
-  UploadFilled,
-} from '@element-plus/icons-vue';
-import {
-  UserItem,
-  UserQueryParam,
-  UserFormData,
-  UserImportFormData,
-} from '@/types/api/system/user';
+import { UserForm, UserQuery, UserPageVO } from "@/api/user/types";
 
-import { Option, Dialog } from '@/types/common';
-
-// DOM元素的引用声明定义 ，变量名和DOM的ref属性值一致
 const deptTreeRef = ref(ElTree); // 部门树
 const queryFormRef = ref(ElForm); // 查询表单
-const dataFormRef = ref(ElForm); // 用户表单
-const importFormRef = ref(ElForm); // 导入表单
+const userFormRef = ref(ElForm); // 用户表单
 
-const { proxy }: any = getCurrentInstance();
-
-const state = reactive({
-  // 遮罩层
-  loading: true,
-  // 选中数组
-  ids: [],
-  // 非单个禁用
-  single: true,
-  // 非多个禁用
-  multiple: true,
-  // 总条数
-  total: 0,
-  // 用户分页数据
-  userList: [] as UserItem[],
-  // 弹窗属性
-  dialog: {
-    visible: false,
-  } as Dialog,
-  deptName: undefined,
-  // 部门树选项
-  deptOptions: [] as Option[],
-  // 部门名称
-  // 性别状态字典
-  genderOptions: [] as any[],
-  // 角色选项
-  roleOptions: [] as Option[],
-  // 表单参数
-  formData: {
-    status: 1,
-  } as UserFormData,
-  // 查询参数
-  queryParams: {
-    pageNum: 1,
-    pageSize: 10,
-  } as UserQueryParam,
-  // 表单校验
-  rules: {
-    username: [{ required: true, message: '用户名不能为空', trigger: 'blur' }],
-    nickname: [
-      { required: true, message: '用户昵称不能为空', trigger: 'blur' },
-    ],
-    deptId: [{ required: true, message: '所属部门不能为空', trigger: 'blur' }],
-    roleIds: [{ required: true, message: '用户角色不能为空', trigger: 'blur' }],
-    email: [
-      {
-        pattern: /\w[-\w.+]*@([A-Za-z0-9][-A-Za-z0-9]+\.)+[A-Za-z]{2,14}/,
-        message: '请输入正确的邮箱地址',
-        trigger: 'blur',
-      },
-    ],
-    mobile: [
-      {
-        pattern: /^1[3|4|5|6|7|8|9][0-9]\d{8}$/,
-        message: '请输入正确的手机号码',
-        trigger: 'blur',
-      },
-    ],
-  },
-
-  importDialog: {
-    title: '用户导出',
-    visible: false,
-  } as Dialog,
-  importFormData: {} as UserImportFormData,
-  excelFile: undefined as any,
-  excelFilelist: [] as File[],
+const loading = ref(false);
+const ids = ref([]);
+const total = ref(0);
+const dialog = reactive<DialogOption>({
+  visible: false,
 });
 
-const {
-  loading,
-  multiple,
-  queryParams,
-  userList,
-  total,
-  dialog,
-  formData,
-  rules,
-  deptName,
-  deptOptions,
-  roleOptions,
-  importDialog,
-  importFormData,
-  excelFilelist,
-} = toRefs(state);
+const queryParams = reactive<UserQuery>({
+  pageNum: 1,
+  pageSize: 10,
+});
+const userList = ref<UserPageVO[]>();
+
+const formData = reactive<UserForm>({
+  status: 1,
+});
+
+const rules = reactive({
+  username: [{ required: true, message: "用户名不能为空", trigger: "blur" }],
+  nickname: [{ required: true, message: "用户昵称不能为空", trigger: "blur" }],
+  deptId: [{ required: true, message: "所属部门不能为空", trigger: "blur" }],
+  roleIds: [{ required: true, message: "用户角色不能为空", trigger: "blur" }],
+  email: [
+    {
+      pattern: /\w[-\w.+]*@([A-Za-z0-9][-A-Za-z0-9]+\.)+[A-Za-z]{2,14}/,
+      message: "请输入正确的邮箱地址",
+      trigger: "blur",
+    },
+  ],
+  mobile: [
+    {
+      pattern: /^1[3|4|5|6|7|8|9][0-9]\d{8}$/,
+      message: "请输入正确的手机号码",
+      trigger: "blur",
+    },
+  ],
+});
+
+const searchDeptName = ref();
+const deptList = ref<OptionType[]>();
+const roleList = ref<OptionType[]>();
+const importDialog = reactive<DialogOption>({
+  title: "用户导入",
+  visible: false,
+});
 
 /**
- * 部门筛选
+ * 导入选择的部门ID
  */
+const importDeptId = ref<number>();
+const excelFile = ref<File>();
+const excelFilelist = ref<File[]>([]);
+
 watchEffect(
   () => {
-    deptTreeRef.value.filter(state.deptName);
+    deptTreeRef.value.filter(searchDeptName.value);
   },
   {
-    flush: 'post', // watchEffect会在DOM挂载或者更新之前就会触发，此属性控制在DOM元素更新后运行
+    flush: "post", // watchEffect会在DOM挂载或者更新之前就会触发，此属性控制在DOM元素更新后运行
   }
 );
 
 /**
- * 部门列表筛选
+ * 部门筛选
  */
-function filterDeptNode(value: string, data: any) {
+function handleDeptFilter(value: string, data: any) {
   if (!value) {
     return true;
   }
@@ -173,41 +101,37 @@ function filterDeptNode(value: string, data: any) {
 }
 
 /**
- * 部门树节点点击事件
+ * 部门树节点
  */
 function handleDeptNodeClick(data: { [key: string]: any }) {
-  state.queryParams.deptId = data.value;
+  queryParams.deptId = data.value;
   handleQuery();
 }
 
 /**
- * 加载角色数据
+ * 获取角色下拉列表
  */
-async function loadRoleOptions() {
+async function getRoleOptions() {
   listRoleOptions().then((response) => {
-    state.roleOptions = response.data;
+    roleList.value = response.data;
   });
 }
 
 /**
- * 用户状态修改
+ * 修改用户状态
  */
 function handleStatusChange(row: { [key: string]: any }) {
-  const text = row.status === 1 ? '启用' : '停用';
-  ElMessageBox.confirm(
-    '确认要' + text + '' + row.username + '用户吗?',
-    '警告',
-    {
-      confirmButtonText: '确定',
-      cancelButtonText: '取消',
-      type: 'warning',
-    }
-  )
+  const text = row.status === 1 ? "启用" : "停用";
+  ElMessageBox.confirm("确认要" + text + row.username + "用户吗?", "警告", {
+    confirmButtonText: "确定",
+    cancelButtonText: "取消",
+    type: "warning",
+  })
     .then(() => {
-      return updateUserPart(row.id, { status: row.status });
+      return updateUserStatus(row.id, row.status);
     })
     .then(() => {
-      ElMessage.success(text + '成功');
+      ElMessage.success(text + "成功");
     })
     .catch(() => {
       row.status = row.status === 1 ? 0 : 1;
@@ -215,15 +139,18 @@ function handleStatusChange(row: { [key: string]: any }) {
 }
 
 /**
- * 用户查询
- **/
+ * 查询
+ */
 function handleQuery() {
-  state.loading = true;
-  listUserPages(state.queryParams).then(({ data }) => {
-    state.userList = data.list;
-    state.total = data.total;
-    state.loading = false;
-  });
+  loading.value = true;
+  getUserPage(queryParams)
+    .then(({ data }) => {
+      userList.value = data.list;
+      total.value = data.total;
+    })
+    .finally(() => {
+      loading.value = false;
+    });
 }
 
 /**
@@ -231,159 +158,151 @@ function handleQuery() {
  */
 function resetQuery() {
   queryFormRef.value.resetFields();
+  queryParams.pageNum = 1;
+  queryParams.deptId = undefined;
   handleQuery();
 }
 
 /**
- * 表格行选中事件
+ * 行checkbox change事件
  */
 function handleSelectionChange(selection: any) {
-  state.ids = selection.map((item: any) => item.id);
-  state.single = selection.length !== 1;
-  state.multiple = !selection.length;
+  ids.value = selection.map((item: any) => item.id);
 }
 
 /**
- * 密码重置
+ * 重置密码
  */
 function resetPassword(row: { [key: string]: any }) {
   ElMessageBox.prompt(
-    '请输入用户「' + row.username + '」的新密码',
-    '重置密码',
+    "请输入用户「" + row.username + "」的新密码",
+    "重置密码",
     {
-      confirmButtonText: '确定',
-      cancelButtonText: '取消',
+      confirmButtonText: "确定",
+      cancelButtonText: "取消",
     }
   )
     .then(({ value }) => {
       if (!value) {
-        ElMessage.warning('请输入新密码');
+        ElMessage.warning("请输入新密码");
         return false;
       }
-      updateUserPart(row.id, {
-        password: value,
-      }).then(() => {
-        ElMessage.success('修改成功，新密码是：' + value);
+      updateUserPassword(row.id, value).then(() => {
+        ElMessage.success("密码重置成功，新密码是：" + value);
       });
     })
     .catch(() => {});
 }
 
 /**
- * 添加用户
- **/
-async function handleAdd() {
-  await loadDeptOptions();
-  await loadRoleOptions();
-  state.dialog = {
-    title: '添加用户',
-    visible: true,
-  };
+ * 打开用户弹窗
+ */
+async function openDialog(userId?: number) {
+  await getDeptOptions();
+  await getRoleOptions();
+  dialog.visible = true;
+  if (userId) {
+    dialog.title = "修改用户";
+    getUserForm(userId).then(({ data }) => {
+      Object.assign(formData, data);
+    });
+  } else {
+    dialog.title = "新增用户";
+  }
 }
 
 /**
- * 修改用户
- **/
-async function handleUpdate(row: { [key: string]: any }) {
-  const userId = row.id || state.ids;
-  await loadDeptOptions();
-  await loadRoleOptions();
-  state.dialog = {
-    title: '修改用户',
-    visible: true,
-  };
-  getUserFormData(userId).then(({ data }) => {
-    state.formData = data;
-  });
+ * 关闭弹窗
+ */
+function closeDialog() {
+  dialog.visible = false;
+  resetForm();
+}
+
+/**
+ * 重置表单
+ */
+function resetForm() {
+  userFormRef.value.resetFields();
+  userFormRef.value.clearValidate();
+
+  formData.id = undefined;
+  formData.status = 1;
 }
 
 /**
  * 表单提交
  */
-function submitForm() {
-  dataFormRef.value.validate((valid: any) => {
+const handleSubmit = useThrottleFn(() => {
+  userFormRef.value.validate((valid: any) => {
     if (valid) {
-      const userId = state.formData.id;
+      const userId = formData.id;
+      loading.value = true;
       if (userId) {
-        updateUser(userId, state.formData).then(() => {
-          ElMessage.success('修改用户成功');
-          cancel();
-          handleQuery();
-        });
+        updateUser(userId, formData)
+          .then(() => {
+            ElMessage.success("修改用户成功");
+            closeDialog();
+            resetQuery();
+          })
+          .finally(() => (loading.value = false));
       } else {
-        addUser(state.formData).then(() => {
-          ElMessage.success('新增用户成功');
-          cancel();
-          handleQuery();
-        });
+        addUser(formData)
+          .then(() => {
+            ElMessage.success("新增用户成功");
+            closeDialog();
+            resetQuery();
+          })
+          .finally(() => (loading.value = false));
       }
     }
   });
-}
+}, 3000);
 
 /**
  * 删除用户
  */
-function handleDelete(row: { [key: string]: any }) {
-  const userIds = row.id || state.ids.join(',');
-  ElMessageBox.confirm(
-    '是否确认删除用户编号为「' + userIds + '」的数据项?',
-    '警告',
-    {
-      confirmButtonText: '确定',
-      cancelButtonText: '取消',
-      type: 'warning',
-    }
-  )
-    .then(function () {
-      deleteUsers(userIds).then(() => {
-        ElMessage.success('删除成功');
-        handleQuery();
-      });
-    })
-    .catch(() => ElMessage.info('已取消删除'));
-}
+function handleDelete(id?: number) {
+  const userIds = [id || ids.value].join(",");
+  if (!userIds) {
+    ElMessage.warning("请勾选删除项");
+    return;
+  }
 
-/**
- * 取消
- */
-function cancel() {
-  state.dialog.visible = false;
-  state.formData.id = undefined;
-  dataFormRef.value.resetFields();
-}
-
-/**
- * 加载部门
- */
-async function loadDeptOptions() {
-  listSelectDepartments().then((response) => {
-    state.deptOptions = response.data;
+  ElMessageBox.confirm("确认删除用户?", "警告", {
+    confirmButtonText: "确定",
+    cancelButtonText: "取消",
+    type: "warning",
+  }).then(function () {
+    deleteUsers(userIds).then(() => {
+      ElMessage.success("删除成功");
+      resetQuery();
+    });
   });
 }
 
 /**
- * 加载性别字典
+ * 获取部门下拉项
  */
-function loadGenderOptions() {
-  proxy.$getDictItemsByTypeCode('gender').then((response: any) => {
-    state.genderOptions = response?.data;
+async function getDeptOptions() {
+  listDeptOptions().then((response) => {
+    deptList.value = response.data;
   });
 }
 
 /**
  * 下载导入模板
  */
-function handleDownloadTemplate() {
-  downloadTemplate().then((response: any) => {
+function downloadTemplate() {
+  downloadTemplateApi().then((response: any) => {
     const blob = new Blob([response.data], {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;charset=utf-8',
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;charset=utf-8",
     });
-    const a = document.createElement('a');
+    const a = document.createElement("a");
     const href = window.URL.createObjectURL(blob); // 下载链接
     a.href = href;
     a.download = decodeURI(
-      response.headers['content-disposition'].split(';')[1].split('=')[1]
+      response.headers["content-disposition"].split(";")[1].split("=")[1]
     ); // 获取后台设置的文件名称
     document.body.appendChild(a);
     a.click(); // 点击下载
@@ -393,12 +312,12 @@ function handleDownloadTemplate() {
 }
 
 /**
- * 显示导入弹窗
+ * 打开导入弹窗
  */
-async function showImportDialog() {
-  await loadDeptOptions();
-  await loadRoleOptions();
-  state.importDialog.visible = true;
+async function openImportDialog() {
+  await getDeptOptions();
+  importDeptId.value = undefined;
+  importDialog.visible = true;
 }
 
 /**
@@ -408,59 +327,53 @@ async function showImportDialog() {
  */
 function handleExcelChange(file: UploadFile) {
   if (!/\.(xlsx|xls|XLSX|XLS)$/.test(file.name)) {
-    ElMessage.warning('上传Excel只能为xlsx、xls格式');
-    state.excelFile = undefined;
-    state.excelFilelist = [];
+    ElMessage.warning("上传Excel只能为xlsx、xls格式");
+    excelFile.value = undefined;
+    excelFilelist.value = [];
     return false;
   }
-  state.excelFile = file.raw;
+  excelFile.value = file.raw;
 }
 
 /**
- * Excel文件上传
+ * 导入用户提交
  */
-function submitImportForm() {
-  importFormRef.value.validate((valid: any) => {
-    if (valid) {
-      if (!state.excelFile) {
-        ElMessage.warning('上传Excel文件不能为空');
-        return false;
-      }
-
-      const deptId = state.importFormData.deptId;
-      const roleIds = state.importFormData.roleIds.join(',');
-      importUser(deptId, roleIds, state.excelFile).then((response) => {
-        ElMessage.success(response.data);
-        closeImportDialog();
-        handleQuery();
-      });
+function handleUserImport() {
+  if (importDeptId.value) {
+    if (!excelFile.value) {
+      ElMessage.warning("上传Excel文件不能为空");
+      return false;
     }
-  });
+    importUser(importDeptId.value, excelFile.value).then((response) => {
+      ElMessage.success(response.data);
+      closeImportDialog();
+      resetQuery();
+    });
+  }
 }
 
 /**
  * 关闭导入弹窗
  */
 function closeImportDialog() {
-  state.importDialog.visible = false;
-  state.excelFile = undefined;
-  state.excelFilelist = [];
-  importFormRef.value.resetFields();
+  importDialog.visible = false;
+  excelFile.value = undefined;
+  excelFilelist.value = [];
 }
 
 /**
  * 导出用户
  */
-function handleExport() {
-  exportUser(queryParams.value).then((response: any) => {
+function handleUserExport() {
+  exportUser(queryParams).then((response: any) => {
     const blob = new Blob([response.data], {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;charset=utf-8',
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;charset=utf-8",
     });
-    const a = document.createElement('a');
+    const a = document.createElement("a");
     const href = window.URL.createObjectURL(blob); // 下载的链接
     a.href = href;
     a.download = decodeURI(
-      response.headers['content-disposition'].split(';')[1].split('=')[1]
+      response.headers["content-disposition"].split(";")[1].split("=")[1]
     ); // 获取后台设置的文件名称
     document.body.appendChild(a);
     a.click(); // 点击导出
@@ -469,20 +382,9 @@ function handleExport() {
   });
 }
 
-/**
- * 初始化数据
- */
-function loadData() {
-  // 初始化性别字典
-  loadGenderOptions();
-  // 初始化部门
-  loadDeptOptions();
-  // 初始化用户列表数据
-  handleQuery();
-}
-
 onMounted(() => {
-  loadData();
+  getDeptOptions(); // 初始化部门
+  handleQuery(); // 初始化用户列表数据
 });
 </script>
 
@@ -490,110 +392,102 @@ onMounted(() => {
   <div class="app-container">
     <el-row :gutter="20">
       <!-- 部门树 -->
-      <el-col :span="4" :xs="24">
-        <el-card class="box-card">
-          <el-input
-            v-model="deptName"
-            placeholder="部门名称"
-            clearable
-            :prefix-icon="Search"
-            style="margin-bottom: 20px"
-          />
+      <el-col :lg="4" :xs="24" class="mb-[12px]">
+        <el-card shadow="never">
+          <el-input v-model="searchDeptName" placeholder="部门名称" clearable>
+            <template #prefix>
+              <i-ep-search />
+            </template>
+          </el-input>
+
           <el-tree
             ref="deptTreeRef"
-            :data="deptOptions"
+            class="mt-2"
+            :data="deptList"
             :props="{ children: 'children', label: 'label', disabled: '' }"
             :expand-on-click-node="false"
-            :filter-node-method="filterDeptNode"
+            :filter-node-method="handleDeptFilter"
             default-expand-all
             @node-click="handleDeptNodeClick"
           ></el-tree>
         </el-card>
       </el-col>
 
-      <!-- 用户数据 -->
-      <el-col :span="20" :xs="24">
-        <el-card class="box-card">
+      <el-col :lg="20" :xs="24">
+        <div class="search-container">
           <el-form ref="queryFormRef" :model="queryParams" :inline="true">
-            <el-row>
-              <el-col :span="18" :xs="24">
-                <el-form-item>
-                  <el-button
-                    type="success"
-                    :icon="Plus"
-                    @click="handleAdd"
-                    v-hasPerm="['sys:user:add']"
-                    >新增</el-button
-                  >
-                  <el-button
-                    type="danger"
-                    :icon="Delete"
-                    :disabled="multiple"
-                    @click="handleDelete"
-                    v-hasPerm="['sys:user:delete']"
-                    >删除</el-button
-                  >
-                </el-form-item>
+            <el-form-item label="关键字" prop="keywords">
+              <el-input
+                v-model="queryParams.keywords"
+                placeholder="用户名/昵称/手机号"
+                clearable
+                style="width: 200px"
+                @keyup.enter="handleQuery"
+              />
+            </el-form-item>
 
-                <el-form-item prop="keywords">
-                  <el-input
-                    v-model="queryParams.keywords"
-                    placeholder="用户名/昵称/手机号"
-                    clearable
-                    style="width: 200px"
-                    @keyup.enter="handleQuery"
-                  />
-                </el-form-item>
+            <el-form-item label="状态" prop="status">
+              <el-select
+                v-model="queryParams.status"
+                placeholder="全部"
+                clearable
+                style="width: 200px"
+              >
+                <el-option label="启用" value="1" />
+                <el-option label="禁用" value="0" />
+              </el-select>
+            </el-form-item>
 
-                <el-form-item prop="status">
-                  <el-select
-                    v-model="queryParams.status"
-                    placeholder="用户状态"
-                    clearable
-                    style="width: 200px"
-                  >
-                    <el-option label="正常" value="1" />
-                    <el-option label="禁用" value="0" />
-                  </el-select>
-                </el-form-item>
-
-                <el-form-item>
-                  <el-button type="primary" :icon="Search" @click="handleQuery"
-                    >搜索</el-button
-                  >
-                  <el-button :icon="Refresh" @click="resetQuery"
-                    >重置</el-button
-                  >
-                </el-form-item>
-              </el-col>
-
-              <el-col :span="6" :xs="24" style="text-align: right">
-                <el-form-item>
-                  <el-dropdown split-button style="margin-left: 12px">
-                    导入
-                    <template #dropdown>
-                      <el-dropdown-menu>
-                        <el-dropdown-item
-                          :icon="Download"
-                          @click="handleDownloadTemplate"
-                          >下载模板</el-dropdown-item
-                        >
-                        <el-dropdown-item :icon="Top" @click="showImportDialog"
-                          >导入数据</el-dropdown-item
-                        >
-                      </el-dropdown-menu>
-                    </template>
-                  </el-dropdown>
-                  <el-button
-                    :icon="Download"
-                    style="margin-left: 12px"
-                    @click="handleExport"
-                    >导出</el-button
-                  >
-                </el-form-item>
-              </el-col>
-            </el-row>
+            <el-form-item>
+              <el-button type="primary" @click="handleQuery"
+                ><i-ep-search />搜索</el-button
+              >
+              <el-button @click="resetQuery">
+                <i-ep-refresh />
+                重置</el-button
+              >
+            </el-form-item>
           </el-form>
+        </div>
+
+        <el-card shadow="never">
+          <template #header>
+            <div class="flex justify-between">
+              <div>
+                <el-button
+                  v-hasPerm="['sys:user:add']"
+                  type="success"
+                  @click="openDialog()"
+                  ><i-ep-plus />新增</el-button
+                >
+                <el-button
+                  v-hasPerm="['sys:user:delete']"
+                  type="danger"
+                  :disabled="ids.length === 0"
+                  @click="handleDelete()"
+                  ><i-ep-delete />删除</el-button
+                >
+              </div>
+              <div>
+                <el-dropdown split-button>
+                  导入
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item @click="downloadTemplate">
+                        <i-ep-download />下载模板</el-dropdown-item
+                      >
+                      <el-dropdown-item @click="openImportDialog">
+                        <i-ep-top />导入数据</el-dropdown-item
+                      >
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
+                <el-button class="ml-3" @click="handleUserExport"
+                  ><template #icon><i-ep-download /></template>导出</el-button
+                >
+              </div>
+            </div>
+          </template>
 
           <el-table
             v-loading="loading"
@@ -603,9 +497,10 @@ onMounted(() => {
             <el-table-column type="selection" width="50" align="center" />
             <el-table-column
               key="id"
-              label="用户编号"
+              label="编号"
               align="center"
               prop="id"
+              width="100"
             />
             <el-table-column
               key="username"
@@ -613,11 +508,26 @@ onMounted(() => {
               align="center"
               prop="username"
             />
-            <el-table-column label="用户昵称" align="center" prop="nickname" />
+            <el-table-column
+              label="用户昵称"
+              width="120"
+              align="center"
+              prop="nickname"
+            />
 
-            <el-table-column label="性别" align="center" prop="genderLabel" />
+            <el-table-column
+              label="性别"
+              width="100"
+              align="center"
+              prop="genderLabel"
+            />
 
-            <el-table-column label="部门" align="center" prop="deptName" />
+            <el-table-column
+              label="部门"
+              width="120"
+              align="center"
+              prop="deptName"
+            />
             <el-table-column
               label="手机号码"
               align="center"
@@ -641,38 +551,39 @@ onMounted(() => {
               prop="createTime"
               width="180"
             ></el-table-column>
-            <el-table-column label="操作" align="center" width="150">
+            <el-table-column label="操作" fixed="right" width="220">
               <template #default="scope">
                 <el-button
+                  v-hasPerm="['sys:user:reset_pwd']"
                   type="primary"
-                  :icon="Edit"
-                  circle
-                  plain
-                  @click="handleUpdate(scope.row)"
-                  v-hasPerm="['sys:user:edit']"
-                ></el-button>
-                <el-button
-                  type="danger"
-                  :icon="Delete"
-                  circle
-                  plain
-                  @click="handleDelete(scope.row)"
-                  v-hasPerm="['sys:user:delete']"
-                ></el-button>
-                <el-button
-                  type="warning"
-                  :icon="Lock"
-                  circle
-                  plain
+                  size="small"
+                  link
                   @click="resetPassword(scope.row)"
-                ></el-button>
+                  ><i-ep-refresh-left />重置密码</el-button
+                >
+                <el-button
+                  v-hasPerm="['sys:user:edit']"
+                  type="primary"
+                  link
+                  size="small"
+                  @click="openDialog(scope.row.id)"
+                  ><i-ep-edit />编辑</el-button
+                >
+                <el-button
+                  v-hasPerm="['sys:user:delete']"
+                  type="primary"
+                  link
+                  size="small"
+                  @click="handleDelete(scope.row.id)"
+                  ><i-ep-delete />删除</el-button
+                >
               </template>
             </el-table-column>
           </el-table>
 
           <pagination
             v-if="total > 0"
-            :total="total"
+            v-model:total="total"
             v-model:page="queryParams.pageNum"
             v-model:limit="queryParams.pageSize"
             @pagination="handleQuery"
@@ -681,24 +592,24 @@ onMounted(() => {
       </el-col>
     </el-row>
 
-    <!-- 用户表单 -->
+    <!-- 表单弹窗 -->
     <el-dialog
-      :title="dialog.title"
       v-model="dialog.visible"
+      :title="dialog.title"
       width="600px"
       append-to-body
-      @close="cancel"
+      @close="closeDialog"
     >
       <el-form
-        ref="dataFormRef"
+        ref="userFormRef"
         :model="formData"
         :rules="rules"
         label-width="80px"
       >
         <el-form-item label="用户名" prop="username">
           <el-input
-            :readonly="!!formData.id"
             v-model="formData.username"
+            :readonly="!!formData.id"
             placeholder="请输入用户名"
           />
         </el-form-item>
@@ -711,10 +622,30 @@ onMounted(() => {
           <el-tree-select
             v-model="formData.deptId"
             placeholder="请选择所属部门"
-            :data="deptOptions"
+            :data="deptList"
             filterable
             check-strictly
+            :render-after-expand="false"
           />
+        </el-form-item>
+
+        <el-form-item label="性别" prop="gender">
+          <el-select v-model="formData.gender" placeholder="请选择">
+            <el-option label="未知" :value="0" />
+            <el-option label="男" :value="1" />
+            <el-option label="女" :value="2" />
+          </el-select>
+        </el-form-item>
+
+        <el-form-item label="角色" prop="roleIds">
+          <el-select v-model="formData.roleIds" multiple placeholder="请选择">
+            <el-option
+              v-for="item in roleList"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </el-select>
         </el-form-item>
 
         <el-form-item label="手机号码" prop="mobile">
@@ -739,70 +670,32 @@ onMounted(() => {
             <el-radio :label="0">禁用</el-radio>
           </el-radio-group>
         </el-form-item>
-
-        <el-form-item label="用户性别" prop="gender">
-          <el-select v-model="formData.gender" placeholder="请选择">
-            <el-option label="未知" :value="0" />
-            <el-option label="男" :value="1" />
-            <el-option label="女" :value="2" />
-          </el-select>
-        </el-form-item>
-
-        <el-form-item label="角色" prop="roleIds">
-          <el-select v-model="formData.roleIds" multiple placeholder="请选择">
-            <el-option
-              v-for="item in roleOptions"
-              :key="item.value"
-              :label="item.label"
-              :value="item.value"
-            />
-          </el-select>
-        </el-form-item>
       </el-form>
       <template #footer>
         <div class="dialog-footer">
-          <el-button type="primary" @click="submitForm">确 定</el-button>
-          <el-button @click="cancel">取 消</el-button>
+          <el-button type="primary" @click="handleSubmit">确 定</el-button>
+          <el-button @click="closeDialog">取 消</el-button>
         </div>
       </template>
     </el-dialog>
 
+    <!-- 导入弹窗 -->
     <el-dialog
-      :title="importDialog.title"
       v-model="importDialog.visible"
+      :title="importDialog.title"
       width="600px"
       append-to-body
       @close="closeImportDialog"
     >
-      <el-form
-        ref="importFormRef"
-        :model="importFormData"
-        :rules="rules"
-        label-width="80px"
-      >
-        <el-form-item label="部门" prop="deptId">
+      <el-form label-width="80px">
+        <el-form-item label="部门">
           <el-tree-select
-            v-model="formData.deptId"
+            v-model="importDeptId"
             placeholder="请选择部门"
-            :data="deptOptions"
+            :data="deptList"
             filterable
             check-strictly
           />
-        </el-form-item>
-
-        <el-form-item label="角色" prop="roleIds">
-          <el-select
-            v-model="importFormData.roleIds"
-            multiple
-            placeholder="请选择"
-          >
-            <el-option
-              v-for="item in roleOptions"
-              :key="item.value"
-              :label="item.label"
-              :value="item.value"
-            />
-          </el-select>
         </el-form-item>
 
         <el-form-item label="Excel">
@@ -817,7 +710,7 @@ onMounted(() => {
             :limit="1"
           >
             <el-icon class="el-icon--upload">
-              <upload-filled />
+              <i-ep-upload-filled />
             </el-icon>
             <div class="el-upload__text">
               将文件拖到此处，或
@@ -831,12 +724,10 @@ onMounted(() => {
       </el-form>
       <template #footer>
         <div class="dialog-footer">
-          <el-button type="primary" @click="submitImportForm">确 定</el-button>
+          <el-button type="primary" @click="handleUserImport">确 定</el-button>
           <el-button @click="closeImportDialog">取 消</el-button>
         </div>
       </template>
     </el-dialog>
   </div>
 </template>
-
-<style lang="scss" scoped></style>
